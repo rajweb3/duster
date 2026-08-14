@@ -109,9 +109,10 @@ export async function POST(request: Request) {
     });
   } catch (error: any) {
     console.error('Login error:', error);
+    const isDbError = error?.code === 'ECONNREFUSED' || error?.message?.includes('connect');
     return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+      { error: isDbError ? 'Service temporarily unavailable. Please try again shortly.' : 'Internal server error' },
+      { status: isDbError ? 503 : 500 }
     );
   }
 }
