@@ -9,6 +9,10 @@ export interface SidecarConfig {
   reconnectMaxMs: number;
   maxBufferedEvents: number;
   maxBufferSizeBytes: number;
+  useMtls: boolean;
+  tlsCertPath: string;
+  tlsKeyPath: string;
+  tlsCaPath: string;
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): SidecarConfig {
@@ -17,6 +21,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
 
   const dashboardUrl = env.DUSTER_DASHBOARD_URL;
   if (!dashboardUrl) throw new Error('DUSTER_DASHBOARD_URL is required');
+
+  const nodeEnv = env.NODE_ENV || 'production';
+  const useMtls = env.DUSTER_USE_MTLS !== undefined
+    ? env.DUSTER_USE_MTLS === 'true'
+    : nodeEnv === 'production';
 
   return {
     tenantId,
@@ -29,5 +38,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     reconnectMaxMs: parseInt(env.DUSTER_RECONNECT_MAX_MS || '60000', 10),
     maxBufferedEvents: parseInt(env.DUSTER_MAX_BUFFER_EVENTS || '1000', 10),
     maxBufferSizeBytes: parseInt(env.DUSTER_MAX_BUFFER_BYTES || '10485760', 10),
+    useMtls,
+    tlsCertPath: env.DUSTER_TLS_CERT_PATH || '/etc/duster/tls/tenant.crt',
+    tlsKeyPath: env.DUSTER_TLS_KEY_PATH || '/etc/duster/tls/tenant.key',
+    tlsCaPath: env.DUSTER_TLS_CA_PATH || '/etc/duster/tls/ca.crt',
   };
 }

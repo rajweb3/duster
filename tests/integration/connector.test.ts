@@ -8,6 +8,7 @@ import type { TenantMessage, HeartbeatMessage, CommandMessage, DashboardMessage 
 
 const JWT_SECRET = 'integration-test-secret';
 const TENANT_ID = '550e8400-e29b-41d4-a716-446655440000';
+const TEST_ENV_BASE = { DUSTER_USE_MTLS: 'false' };
 
 function makeHeartbeat(overrides: Partial<HeartbeatMessage> = {}): HeartbeatMessage {
   return {
@@ -42,6 +43,7 @@ describe('Connector Integration: Connection Lifecycle', () => {
   it('sidecar connects to dashboard with valid token', async () => {
     const token = await createToken(TENANT_ID, JWT_SECRET);
     const config = loadConfig({
+      ...TEST_ENV_BASE,
       DUSTER_TENANT_ID: TENANT_ID,
       DUSTER_DASHBOARD_URL: `ws://127.0.0.1:${port}`,
       DUSTER_RECONNECT_BASE_MS: '100',
@@ -63,6 +65,7 @@ describe('Connector Integration: Connection Lifecycle', () => {
 
   it('sidecar connection rejected with invalid token', async () => {
     const config = loadConfig({
+      ...TEST_ENV_BASE,
       DUSTER_TENANT_ID: TENANT_ID,
       DUSTER_DASHBOARD_URL: `ws://127.0.0.1:${port}`,
       DUSTER_RECONNECT_BASE_MS: '50',
@@ -83,6 +86,7 @@ describe('Connector Integration: Connection Lifecycle', () => {
   it('sidecar reconnects after disconnect', async () => {
     const token = await createToken(TENANT_ID, JWT_SECRET);
     const config = loadConfig({
+      ...TEST_ENV_BASE,
       DUSTER_TENANT_ID: TENANT_ID,
       DUSTER_DASHBOARD_URL: `ws://127.0.0.1:${port}`,
       DUSTER_RECONNECT_BASE_MS: '50',
@@ -113,6 +117,7 @@ describe('Connector Integration: Connection Lifecycle', () => {
   it('graceful disconnect does not reconnect', async () => {
     const token = await createToken(TENANT_ID, JWT_SECRET);
     const config = loadConfig({
+      ...TEST_ENV_BASE,
       DUSTER_TENANT_ID: TENANT_ID,
       DUSTER_DASHBOARD_URL: `ws://127.0.0.1:${port}`,
       DUSTER_RECONNECT_BASE_MS: '50',
@@ -146,6 +151,7 @@ describe('Connector Integration: Message Flow', () => {
 
     const token = await createToken(TENANT_ID, JWT_SECRET);
     const config = loadConfig({
+      ...TEST_ENV_BASE,
       DUSTER_TENANT_ID: TENANT_ID,
       DUSTER_DASHBOARD_URL: `ws://127.0.0.1:${port}`,
       DUSTER_RECONNECT_BASE_MS: '50',
@@ -260,6 +266,7 @@ describe('Connector Integration: Error Resilience', () => {
   it('handles malformed message from dashboard gracefully', async () => {
     const token = await createToken(TENANT_ID, JWT_SECRET);
     const config = loadConfig({
+      ...TEST_ENV_BASE,
       DUSTER_TENANT_ID: TENANT_ID,
       DUSTER_DASHBOARD_URL: `ws://127.0.0.1:${port}`,
       DUSTER_RECONNECT_BASE_MS: '50',
@@ -308,6 +315,7 @@ describe('Connector Integration: Error Resilience', () => {
 
   it('connector to unreachable server buffers', () => {
     const config = loadConfig({
+      ...TEST_ENV_BASE,
       DUSTER_TENANT_ID: TENANT_ID,
       DUSTER_DASHBOARD_URL: 'ws://127.0.0.1:19999',
       DUSTER_RECONNECT_BASE_MS: '50',

@@ -9,8 +9,10 @@ const NAV_ITEMS = [
   { label: 'Overview', href: '/overview', icon: '◉' },
   { label: 'Integrations', href: '/integrations', icon: '⬡' },
   { label: 'Workflows', href: '/workflows', icon: '⚡' },
+  { label: 'Automations', href: '/automations', icon: '⏱' },
   { label: 'Activity', href: '/activity', icon: '▤' },
   { label: 'Tools', href: '/tools', icon: '⚙' },
+  { label: 'Knowledge', href: '/knowledge', icon: '◈' },
   { label: 'Monitoring', href: '/monitoring', icon: '◎' },
 ];
 

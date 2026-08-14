@@ -4,6 +4,7 @@ import type { TenantMessage, DashboardMessage } from '@duster/shared';
 import { validateDashboardMessage } from '@duster/shared';
 import { EventBuffer } from './event-buffer.js';
 import type { SidecarConfig } from './config.js';
+import { createSecureWebSocketOptions } from './mtls.js';
 
 export type ConnectorState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
@@ -41,12 +42,23 @@ export class DashboardConnector extends EventEmitter {
     this.setState('connecting');
     const url = `${this.config.dashboardUrl}/ws?tenantId=${this.config.tenantId}`;
 
-    this.ws = new WebSocket(url, {
+    const wsOptions: WebSocket.ClientOptions = {
       headers: {
         authorization: `Bearer ${this.jwtToken}`,
         'x-tenant-id': this.config.tenantId,
       },
-    });
+    };
+
+    if (this.config.useMtls) {
+      const tlsOptions = createSecureWebSocketOptions({
+        certPath: this.config.tlsCertPath,
+        keyPath: this.config.tlsKeyPath,
+        caPath: this.config.tlsCaPath,
+      });
+      Object.assign(wsOptions, tlsOptions);
+    }
+
+    this.ws = new WebSocket(url, wsOptions);
 
     this.ws.on('open', () => {
       this.setState('connected');

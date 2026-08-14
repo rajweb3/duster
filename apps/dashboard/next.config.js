@@ -5,17 +5,22 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: '2mb',
     },
+    serverComponentsExternalPackages: ['@aws-sdk/client-kms', '@aws-sdk/client-ec2'],
   },
   images: {
     formats: ['image/avif', 'image/webp'],
   },
-  webpack: (config) => {
+  webpack: (config, { isServer }) => {
     config.resolve.fallback = {
       ...config.resolve.fallback,
       fs: false,
       net: false,
       tls: false,
     };
+    if (isServer) {
+      config.externals = config.externals || [];
+      config.externals.push('@aws-sdk/client-kms', '@aws-sdk/client-ec2');
+    }
     return config;
   },
   pageExtensions: ['tsx', 'ts'],

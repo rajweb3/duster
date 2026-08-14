@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@aws-sdk/client-kms": "^3.600.0",
     "@duster/shared": "*",
     "ws": "^8.17.0"
   },

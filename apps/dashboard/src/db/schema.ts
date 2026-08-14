@@ -14,6 +14,9 @@ export const tenants = pgTable('tenants', {
   status: tenantStatusEnum('status').notNull().default('provisioning'),
   instanceId: varchar('instance_id', { length: 64 }),
   region: varchar('region', { length: 32 }).default('us-east-1'),
+  kmsKeyArn: varchar('kms_key_arn', { length: 256 }),
+  encryptionStatus: varchar('encryption_status', { length: 32 }).default('none'),
+  lastKeyRotation: timestamp('last_key_rotation'),
   provisionedAt: timestamp('provisioned_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -89,6 +92,23 @@ export const auditLog = pgTable('audit_log', {
   metadata: jsonb('metadata').default({}),
   ipAddress: varchar('ip_address', { length: 45 }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const scheduleStatusEnum = pgEnum('schedule_status', ['active', 'paused']);
+
+export const schedules = pgTable('schedules', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  skillId: varchar('skill_id', { length: 64 }).notNull(),
+  name: varchar('name', { length: 128 }).notNull(),
+  cron: varchar('cron', { length: 64 }).notNull(),
+  status: scheduleStatusEnum('status').notNull().default('active'),
+  lastRunAt: timestamp('last_run_at'),
+  lastRunStatus: varchar('last_run_status', { length: 32 }),
+  nextRunAt: timestamp('next_run_at'),
+  runCount: integer('run_count').notNull().default(0),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
 export const tokenTypeEnum = pgEnum('token_type', ['email_verification', 'password_reset']);

@@ -29,6 +29,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@aws-sdk/client-kms": "^3.1110.0",
     "@types/bcrypt": "^6.0.0",
     "@types/nodemailer": "^8.0.1",
     "@types/react": "^18.3.0",
