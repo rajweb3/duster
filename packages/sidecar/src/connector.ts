@@ -90,8 +90,6 @@ export class DashboardConnector extends EventEmitter {
 
     this.ws.on('error', (err: Error) => {
       this.emit('error', err);
-      this.cleanup();
-      this.scheduleReconnect();
     });
   }
 

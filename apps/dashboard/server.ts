@@ -9,6 +9,7 @@ import {
   updateTenantHeartbeat,
   getStaleConnections,
 } from './src/lib/ws/bridge.js';
+import { loadRevocationListFromDb } from './src/lib/mtls.js';
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = '0.0.0.0';
@@ -24,7 +25,10 @@ if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'duster-dev-secret-change-in-production');
 
-app.prepare().then(() => {
+app.prepare().then(async () => {
+  const crlCount = await loadRevocationListFromDb().catch(() => 0);
+  if (crlCount > 0) console.log(`Loaded ${crlCount} certificate revocations from DB`);
+
   const server = createServer(async (req, res) => {
     const parsedUrl = parse(req.url!, true);
     await handle(req, res, parsedUrl);
@@ -33,8 +37,8 @@ app.prepare().then(() => {
   const wss = new WebSocketServer({ server, path: '/ws' });
 
   wss.on('connection', async (ws, req) => {
-    const url = new URL(req.url!, `http://${req.headers.host}`);
-    const token = url.searchParams.get('token');
+    const authHeader = req.headers['authorization'];
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
     if (!token) {
       ws.close(4001, 'Missing token');
