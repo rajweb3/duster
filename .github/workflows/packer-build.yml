@@ -1,0 +1,56 @@
+name: Build AMI
+
+on:
+  workflow_dispatch:
+    inputs:
+      region:
+        description: AWS region for the AMI
+        required: true
+        default: us-east-1
+        type: choice
+        options:
+          - us-east-1
+          - us-west-2
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-ami:
+    name: Build Duster Tenant AMI
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-arn: ${{ secrets.AWS_PACKER_ROLE_ARN }}
+          aws-region: ${{ inputs.region }}
+
+      - uses: hashicorp/setup-packer@main
+
+      - name: Init Packer
+        working-directory: infra/packer
+        run: packer init .
+
+      - name: Build AMI
+        working-directory: infra/packer
+        run: |
+          packer build \
+            -var "aws_region=${{ inputs.region }}" \
+            -color=false \
+            duster-tenant.pkr.hcl | tee build.log
+
+      - name: Extract AMI ID
+        id: ami
+        run: |
+          AMI_ID=$(grep -oP 'ami-[a-f0-9]+' infra/packer/build.log | tail -1)
+          echo "ami_id=$AMI_ID" >> "$GITHUB_OUTPUT"
+          echo "Built AMI: $AMI_ID"
+
+      - name: Update Terraform variable
+        run: |
+          echo "ami_id = \"${{ steps.ami.outputs.ami_id }}\"" > infra/terraform/ami.auto.tfvars
+          cat infra/terraform/ami.auto.tfvars

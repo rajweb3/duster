@@ -1,0 +1,5 @@
+aws_region         = "us-east-1"
+instance_type      = "g6.xlarge"
+sidecar_version    = "0.1.0"
+hermes_version     = "latest"
+muse_glimmer_model = "muse-glimmer"

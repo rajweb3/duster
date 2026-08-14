@@ -1,0 +1,19 @@
+[Unit]
+Description=Duster Management Sidecar
+After=hermes-agent.service
+Requires=hermes-agent.service
+
+[Service]
+Type=simple
+User=duster
+WorkingDirectory=/opt/duster/sidecar
+ExecStartPre=/bin/bash -c 'until curl -sf http://127.0.0.1:8080/health; do sleep 2; done'
+ExecStart=/usr/bin/node /opt/duster/sidecar/index.js
+Restart=always
+RestartSec=5
+EnvironmentFile=/etc/duster/config.env
+Environment="NODE_ENV=production"
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
