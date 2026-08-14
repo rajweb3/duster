@@ -71,12 +71,21 @@ export const webhookLimiter = createRateLimiter('webhook', {
 
 const TRUSTED_PROXIES = (process.env.TRUSTED_PROXY_RANGES || '127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16').split(',').map(s => s.trim());
 
+export function normalizeIp(ip: string): string {
+  if (ip.startsWith('::ffff:')) {
+    const v4 = ip.slice(7);
+    if (v4.includes('.')) return v4;
+  }
+  return ip;
+}
+
 export function isFromTrustedProxy(ip: string): boolean {
+  const normalized = normalizeIp(ip);
   return TRUSTED_PROXIES.some(range => {
     if (range.includes('/')) {
-      return ipInCidr(ip, range);
+      return ipInCidr(normalized, range);
     }
-    return ip === range;
+    return normalized === range || ip === range;
   });
 }
 
@@ -97,10 +106,11 @@ export function ipToNum(ip: string): number | null {
 
 export function getClientIp(request: Request): string {
   const forwarded = request.headers.get('x-forwarded-for');
-  const connectingIp = request.headers.get('x-real-ip') || '127.0.0.1';
-  if (forwarded && isFromTrustedProxy(connectingIp)) {
-    return forwarded.split(',')[0].trim();
+  const realIp = request.headers.get('x-real-ip');
+  if (forwarded && realIp && isFromTrustedProxy(realIp)) {
+    return normalizeIp(forwarded.split(',')[0].trim());
   }
-  if (connectingIp !== '127.0.0.1') return connectingIp;
+  if (realIp) return normalizeIp(realIp);
+  if (forwarded) return normalizeIp(forwarded.split(',')[0].trim());
   return '127.0.0.1';
 }
