@@ -138,7 +138,7 @@ export default function LandingPage() {
       {/* Footer */}
       <footer className="py-8 px-6 border-t border-border">
         <div className="max-w-6xl mx-auto flex items-center justify-between text-sm text-muted">
-          <span>© 2024 Duster. All rights reserved.</span>
+          <span>&copy; 2026 Duster. All rights reserved.</span>
           <div className="flex gap-6">
             <Link href="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
             <Link href="/terms" className="hover:text-foreground transition-colors">Terms</Link>
