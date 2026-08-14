@@ -65,6 +65,7 @@ export default function LoginPage() {
             placeholder="you@company.com"
             required
             autoComplete="email"
+            suppressHydrationWarning
           />
         </div>
 
@@ -84,6 +85,7 @@ export default function LoginPage() {
             placeholder="••••••••"
             required
             autoComplete="current-password"
+            suppressHydrationWarning
           />
         </div>
 

@@ -89,6 +89,7 @@ export default function SignupPage() {
             placeholder="you@company.com"
             required
             autoComplete="email"
+            suppressHydrationWarning
           />
         </div>
 
@@ -104,6 +105,7 @@ export default function SignupPage() {
             required
             minLength={8}
             autoComplete="new-password"
+            suppressHydrationWarning
           />
         </div>
 
