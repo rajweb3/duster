@@ -37,7 +37,7 @@ export interface CrlEntry {
 
 // In-memory CRL cache, backed by database for persistence.
 // On startup, loadRevocationListFromDb() should be called to hydrate.
-const revocationList: Map<string, CrlEntry> = new Map();
+let revocationList: Map<string, CrlEntry> = new Map();
 
 // CA state
 let caPrivateKeyPem: string | null = null;
@@ -73,6 +73,10 @@ export function initializeCAFromPem(keyPem: string, certPem: string): void {
 export function resetCA(): void {
   caPrivateKeyPem = null;
   caCertPem = null;
+}
+
+export function getCaCertPem(): string | null {
+  return caCertPem;
 }
 
 /**
@@ -321,7 +325,7 @@ export function getRevocationList(): CrlEntry[] {
  * Clear the revocation list (testing utility).
  */
 export function clearRevocationList(): void {
-  revocationList.clear();
+  revocationList = new Map();
 }
 
 /**
@@ -334,7 +338,7 @@ export async function loadRevocationListFromDb(): Promise<number> {
 
   const rows = await db.select().from(certificateRevocations);
 
-  revocationList.clear();
+  const newList = new Map<string, CrlEntry>();
   for (const row of rows) {
     const entry: CrlEntry = {
       serialNumber: row.serialNumber,
@@ -342,8 +346,9 @@ export async function loadRevocationListFromDb(): Promise<number> {
       revokedAt: row.revokedAt,
       reason: row.reason,
     };
-    revocationList.set(row.serialNumber.toLowerCase(), entry);
+    newList.set(row.serialNumber.toLowerCase(), entry);
   }
+  revocationList = newList;
 
   return rows.length;
 }
