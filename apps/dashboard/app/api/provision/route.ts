@@ -2,9 +2,9 @@ import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { db } from '@/db';
 import { tenants } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, and, notInArray } from 'drizzle-orm';
 import { logAudit } from '@/lib/audit';
-import { generateTenantCertificate } from '@/lib/mtls';
+import { generateTenantCertificate, getCaCertPem } from '@/lib/mtls';
 import { TenantProvisioner, loadProvisionerConfig } from '@duster/provisioner';
 
 let provisioner: TenantProvisioner | null = null;
@@ -39,20 +39,33 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
   }
 
-  if (tenant.status === 'active') {
-    return NextResponse.json({ error: 'Already provisioned' }, { status: 409 });
+  if (tenant.status === 'active' || tenant.status === 'provisioning') {
+    return NextResponse.json({ error: 'Already provisioned or in progress' }, { status: 409 });
   }
 
   try {
-    await db.update(tenants).set({
+    const [locked] = await db.update(tenants).set({
       status: 'provisioning',
       updatedAt: new Date(),
-    }).where(eq(tenants.id, tenantId));
+    }).where(
+      and(
+        eq(tenants.id, tenantId),
+        notInArray(tenants.status, ['active', 'provisioning']),
+      ),
+    ).returning();
+
+    if (!locked) {
+      return NextResponse.json({ error: 'Provisioning already in progress' }, { status: 409 });
+    }
 
     const certBundle = generateTenantCertificate(tenantId);
 
     const prov = getProvisioner();
-    const result = await prov.provision(tenantId);
+    const result = await prov.provision(tenantId, {
+      tlsCert: certBundle.certificate,
+      tlsKey: certBundle.privateKey,
+      tlsCa: getCaCertPem() || undefined,
+    });
 
     if (!result.success || !result.instance) {
       await db.update(tenants).set({
@@ -61,7 +74,7 @@ export async function POST(request: Request) {
       }).where(eq(tenants.id, tenantId));
 
       return NextResponse.json(
-        { error: result.error || 'Provisioning failed' },
+        { error: 'Provisioning failed. Please try again or contact support.' },
         { status: 500 },
       );
     }
@@ -99,7 +112,7 @@ export async function POST(request: Request) {
     }).where(eq(tenants.id, tenantId));
 
     return NextResponse.json(
-      { error: `Provisioning failed: ${error.message}` },
+      { error: 'Provisioning failed. Please try again or contact support.' },
       { status: 500 },
     );
   }

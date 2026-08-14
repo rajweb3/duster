@@ -34,13 +34,16 @@ export class TenantProvisioner {
     this.ec2 = ec2Client || new EC2Client({ region: config.awsRegion });
   }
 
-  async provision(tenantId: string): Promise<ProvisionResult> {
+  async provision(tenantId: string, opts?: { tlsCert?: string; tlsKey?: string; tlsCa?: string }): Promise<ProvisionResult> {
     try {
       const jwtToken = await this.generateTenantToken(tenantId);
       const userData = generateUserData({
         tenantId,
         dashboardUrl: this.config.dashboardUrl,
         jwtToken,
+        tlsCert: opts?.tlsCert,
+        tlsKey: opts?.tlsKey,
+        tlsCa: opts?.tlsCa,
       });
 
       const params: RunInstancesCommandInput = {
