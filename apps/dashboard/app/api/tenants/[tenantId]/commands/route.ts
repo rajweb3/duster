@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { logAudit } from '@/lib/audit';
 import { apiLimiter, getClientIp } from '@/lib/rate-limit';
+import { sendCommandToTenant } from '@/lib/ws/bridge';
 
 const commandSchema = z.object({
   action: z.enum([
@@ -48,15 +49,14 @@ export async function POST(
   const { action, payload } = parsed.data;
 
   const command = {
-    id: commandId,
+    type: 'command' as const,
+    commandId,
     tenantId: params.tenantId,
     action,
     payload,
-    sentAt: Date.now(),
   };
 
-  // TODO: Forward to WebSocket tenant connection via sendCommandToTenant
-  console.log('Command queued:', command);
+  const delivered = sendCommandToTenant(params.tenantId, command);
 
   await logAudit({
     tenantId: params.tenantId,
@@ -65,8 +65,16 @@ export async function POST(
     resource: 'command',
     resourceId: commandId,
     ipAddress: ip,
-    metadata: { action, payload },
+    metadata: { action, payload, delivered },
   });
+
+  if (!delivered) {
+    return NextResponse.json({
+      sent: false,
+      commandId,
+      error: 'Tenant sidecar is not connected. Command will not be delivered.',
+    }, { status: 503 });
+  }
 
   return NextResponse.json({
     sent: true,

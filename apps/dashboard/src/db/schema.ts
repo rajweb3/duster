@@ -111,6 +111,15 @@ export const schedules = pgTable('schedules', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
+export const certificateRevocations = pgTable('certificate_revocations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  serialNumber: varchar('serial_number', { length: 128 }).notNull(),
+  reason: varchar('reason', { length: 128 }).notNull().default('tenant_deprovisioned'),
+  revokedAt: timestamp('revoked_at').notNull().defaultNow(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
 export const tokenTypeEnum = pgEnum('token_type', ['email_verification', 'password_reset']);
 
 export const verificationTokens = pgTable('verification_tokens', {

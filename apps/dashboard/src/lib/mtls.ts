@@ -35,7 +35,8 @@ export interface CrlEntry {
   reason: string;
 }
 
-// In-memory CRL store. Production would back this with a database.
+// In-memory CRL cache, backed by database for persistence.
+// On startup, loadRevocationListFromDb() should be called to hydrate.
 const revocationList: Map<string, CrlEntry> = new Map();
 
 // CA state
@@ -255,12 +256,13 @@ export function generateTenantCertificate(
 }
 
 /**
- * Revoke a tenant's certificate. Adds to the in-memory CRL.
+ * Revoke a tenant's certificate. Adds to in-memory CRL and persists to database.
+ * Persistence is best-effort — revocation is immediate in-memory regardless.
  */
-export function revokeCertificate(
+export async function revokeCertificate(
   tenantId: string,
   reason: string = 'tenant_deprovisioned',
-): { revoked: boolean; error?: string } {
+): Promise<{ revoked: boolean; error?: string }> {
   const entry: CrlEntry = {
     serialNumber: `revoked-${tenantId}`,
     tenantId,
@@ -268,19 +270,24 @@ export function revokeCertificate(
     reason,
   };
 
-  // Store keyed by tenant ID for tenant-based lookup
   revocationList.set(entry.serialNumber, entry);
+  try {
+    await persistRevocation(entry);
+  } catch {
+    // DB persistence is best-effort; in-memory CRL is already updated
+  }
   return { revoked: true };
 }
 
 /**
  * Revoke a certificate by its serial number directly.
+ * Persists to database for crash safety (best-effort).
  */
-export function revokeCertificateBySerial(
+export async function revokeCertificateBySerial(
   serialNumber: string,
   tenantId: string,
   reason: string = 'key_compromise',
-): { revoked: boolean } {
+): Promise<{ revoked: boolean }> {
   const entry: CrlEntry = {
     serialNumber: serialNumber.toLowerCase(),
     tenantId,
@@ -288,6 +295,11 @@ export function revokeCertificateBySerial(
     reason,
   };
   revocationList.set(serialNumber.toLowerCase(), entry);
+  try {
+    await persistRevocation(entry);
+  } catch {
+    // DB persistence is best-effort; in-memory CRL is already updated
+  }
   return { revoked: true };
 }
 
@@ -310,6 +322,45 @@ export function getRevocationList(): CrlEntry[] {
  */
 export function clearRevocationList(): void {
   revocationList.clear();
+}
+
+/**
+ * Load all revocation entries from the database into the in-memory cache.
+ * Should be called at server startup to ensure CRL survives restarts.
+ */
+export async function loadRevocationListFromDb(): Promise<number> {
+  const { db } = await import('@/db');
+  const { certificateRevocations } = await import('@/db/schema');
+
+  const rows = await db.select().from(certificateRevocations);
+
+  revocationList.clear();
+  for (const row of rows) {
+    const entry: CrlEntry = {
+      serialNumber: row.serialNumber,
+      tenantId: row.tenantId,
+      revokedAt: row.revokedAt,
+      reason: row.reason,
+    };
+    revocationList.set(row.serialNumber.toLowerCase(), entry);
+  }
+
+  return rows.length;
+}
+
+/**
+ * Persist a revocation entry to the database (in addition to in-memory cache).
+ */
+export async function persistRevocation(entry: CrlEntry): Promise<void> {
+  const { db } = await import('@/db');
+  const { certificateRevocations } = await import('@/db/schema');
+
+  await db.insert(certificateRevocations).values({
+    tenantId: entry.tenantId,
+    serialNumber: entry.serialNumber,
+    reason: entry.reason,
+    revokedAt: entry.revokedAt,
+  });
 }
 
 /**

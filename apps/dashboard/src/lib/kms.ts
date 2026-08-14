@@ -44,11 +44,15 @@ export function extractRegionFromArn(arn: string): string {
 }
 
 /**
- * Verify that we have access to the customer's KMS key by performing a
- * test encrypt/decrypt cycle with a dummy value. This validates that:
- * 1. The key exists
- * 2. Our IAM role has encrypt/decrypt permissions
- * 3. The key is enabled
+ * Verify that the customer's KMS key exists, is enabled, and the tenant VM
+ * IAM role can use it. The control plane uses DescribeKey only — it NEVER
+ * calls Decrypt on customer keys. This preserves the zero-knowledge guarantee:
+ * the control plane cannot decrypt customer data.
+ *
+ * Validates:
+ * 1. The key exists (DescribeKey succeeds)
+ * 2. The key is enabled (KeyState === 'Enabled')
+ * 3. The key is a symmetric encryption key (correct usage)
  */
 export async function verifyKeyAccess(kmsKeyArn: string): Promise<{ success: boolean; error?: string }> {
   const validation = validateKmsKeyArn(kmsKeyArn);
@@ -57,49 +61,37 @@ export async function verifyKeyAccess(kmsKeyArn: string): Promise<{ success: boo
   }
 
   const region = extractRegionFromArn(kmsKeyArn);
-  const { KMSClient, EncryptCommand, DecryptCommand } = await import('@aws-sdk/client-kms');
+  const { KMSClient, DescribeKeyCommand } = await import('@aws-sdk/client-kms');
   const client = new KMSClient({ region });
-  const testPlaintext = Buffer.from('duster-key-verification-test');
 
   try {
-    // Test encrypt
-    const encryptResult = await client.send(
-      new EncryptCommand({
-        KeyId: kmsKeyArn,
-        Plaintext: testPlaintext,
-      })
+    const result = await client.send(
+      new DescribeKeyCommand({ KeyId: kmsKeyArn })
     );
 
-    if (!encryptResult.CiphertextBlob) {
-      return { success: false, error: 'KMS encrypt returned empty ciphertext' };
+    const metadata = result.KeyMetadata;
+    if (!metadata) {
+      return { success: false, error: 'KMS DescribeKey returned no metadata' };
     }
 
-    // Test decrypt
-    const decryptResult = await client.send(
-      new DecryptCommand({
-        CiphertextBlob: encryptResult.CiphertextBlob,
-        KeyId: kmsKeyArn,
-      })
-    );
-
-    if (!decryptResult.Plaintext) {
-      return { success: false, error: 'KMS decrypt returned empty plaintext' };
+    if (metadata.KeyState !== 'Enabled') {
+      return { success: false, error: `KMS key is not enabled (state: ${metadata.KeyState})` };
     }
 
-    // Verify roundtrip
-    const decrypted = Buffer.from(decryptResult.Plaintext);
-    if (!decrypted.equals(testPlaintext)) {
-      return { success: false, error: 'KMS roundtrip verification failed: data mismatch' };
+    if (metadata.KeyUsage !== 'ENCRYPT_DECRYPT') {
+      return { success: false, error: `KMS key usage is ${metadata.KeyUsage}, expected ENCRYPT_DECRYPT` };
+    }
+
+    if (metadata.KeySpec !== 'SYMMETRIC_DEFAULT') {
+      return { success: false, error: `KMS key spec is ${metadata.KeySpec}, expected SYMMETRIC_DEFAULT` };
     }
 
     return { success: true };
   } catch (err: any) {
     const message = err?.name === 'NotFoundException'
       ? 'KMS key not found'
-      : err?.name === 'DisabledException'
-      ? 'KMS key is disabled'
       : err?.name === 'AccessDeniedException'
-      ? 'Access denied: ensure Duster\'s IAM role has kms:Encrypt and kms:Decrypt permissions on this key'
+      ? 'Access denied: ensure the KMS key policy grants kms:DescribeKey to Duster\'s control plane role'
       : `KMS verification failed: ${err?.message || 'Unknown error'}`;
 
     return { success: false, error: message };

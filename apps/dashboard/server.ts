@@ -3,6 +3,12 @@ import { parse } from 'url';
 import next from 'next';
 import { WebSocketServer, WebSocket } from 'ws';
 import { jwtVerify } from 'jose';
+import {
+  registerTenantConnection,
+  removeTenantConnection,
+  updateTenantHeartbeat,
+  getStaleConnections,
+} from './src/lib/ws/bridge.js';
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = '0.0.0.0';
@@ -11,16 +17,12 @@ const port = parseInt(process.env.PORT || '3000', 10);
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
-const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'duster-dev-secret-change-in-production');
-
-interface TenantConnection {
-  ws: WebSocket;
-  tenantId: string;
-  connectedAt: number;
-  lastHeartbeat: number;
+if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
+  console.error('FATAL: JWT_SECRET environment variable is required in production.');
+  process.exit(1);
 }
 
-const tenantConnections = new Map<string, TenantConnection>();
+const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'duster-dev-secret-change-in-production');
 
 app.prepare().then(() => {
   const server = createServer(async (req, res) => {
@@ -51,24 +53,12 @@ app.prepare().then(() => {
         return;
       }
 
-      // Close existing connection for this tenant
-      const existing = tenantConnections.get(tenantId);
-      if (existing) {
-        existing.ws.close(4003, 'Replaced by new connection');
-      }
-
-      tenantConnections.set(tenantId, {
-        ws,
-        tenantId,
-        connectedAt: Date.now(),
-        lastHeartbeat: Date.now(),
-      });
-
+      registerTenantConnection(tenantId, ws);
       console.log(`Tenant connected: ${tenantId}`);
 
-      // Send initial config
       ws.send(JSON.stringify({
         type: 'config.sync.request',
+        tenantId,
         timestamp: Date.now(),
       }));
 
@@ -82,13 +72,13 @@ app.prepare().then(() => {
       });
 
       ws.on('close', () => {
-        tenantConnections.delete(tenantId);
+        removeTenantConnection(tenantId);
         console.log(`Tenant disconnected: ${tenantId}`);
       });
 
       ws.on('error', (err) => {
         console.error(`WebSocket error for ${tenantId}:`, err.message);
-        tenantConnections.delete(tenantId);
+        removeTenantConnection(tenantId);
       });
     } catch {
       ws.close(4002, 'Invalid token');
@@ -97,14 +87,11 @@ app.prepare().then(() => {
 
   // Stale connection cleanup every 60s
   setInterval(() => {
-    const now = Date.now();
-    const staleThreshold = 90000; // 90 seconds
-    for (const [tenantId, conn] of tenantConnections.entries()) {
-      if (now - conn.lastHeartbeat > staleThreshold) {
-        console.log(`Removing stale connection: ${tenantId}`);
-        conn.ws.close(4004, 'Stale connection');
-        tenantConnections.delete(tenantId);
-      }
+    const stale = getStaleConnections(90000);
+    for (const conn of stale) {
+      console.log(`Removing stale connection: ${conn.tenantId}`);
+      conn.ws.close(4004, 'Stale connection');
+      removeTenantConnection(conn.tenantId);
     }
   }, 60000);
 
@@ -115,12 +102,9 @@ app.prepare().then(() => {
 });
 
 function handleTenantMessage(tenantId: string, msg: any) {
-  const conn = tenantConnections.get(tenantId);
-  if (!conn) return;
-
   switch (msg.type) {
     case 'heartbeat':
-      conn.lastHeartbeat = Date.now();
+      updateTenantHeartbeat(tenantId);
       break;
     case 'metrics':
     case 'session.event':
@@ -129,19 +113,11 @@ function handleTenantMessage(tenantId: string, msg: any) {
     case 'tool.registry':
     case 'memory.stats':
     case 'command.ack':
-      // Forward to any dashboard WebSocket clients watching this tenant
-      // In production, this would broadcast to connected dashboard users
+    case 'config.sync.response':
       break;
     default:
-      console.log(`Unknown message type from ${tenantId}: ${msg.type}`);
+      break;
   }
 }
 
-export function sendCommandToTenant(tenantId: string, command: any): boolean {
-  const conn = tenantConnections.get(tenantId);
-  if (!conn || conn.ws.readyState !== WebSocket.OPEN) {
-    return false;
-  }
-  conn.ws.send(JSON.stringify(command));
-  return true;
-}
+export { sendCommandToTenant } from './src/lib/ws/bridge.js';

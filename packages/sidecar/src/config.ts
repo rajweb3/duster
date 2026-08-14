@@ -7,6 +7,8 @@ export interface SidecarConfig {
   metricsIntervalMs: number;
   reconnectBaseMs: number;
   reconnectMaxMs: number;
+  maxReconnectAttempts: number;
+  dormantRetryMs: number;
   maxBufferedEvents: number;
   maxBufferSizeBytes: number;
   useMtls: boolean;
@@ -36,6 +38,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     metricsIntervalMs: parseInt(env.DUSTER_METRICS_MS || '10000', 10),
     reconnectBaseMs: parseInt(env.DUSTER_RECONNECT_BASE_MS || '1000', 10),
     reconnectMaxMs: parseInt(env.DUSTER_RECONNECT_MAX_MS || '60000', 10),
+    maxReconnectAttempts: parseInt(env.DUSTER_MAX_RECONNECT_ATTEMPTS || '20', 10),
+    dormantRetryMs: parseInt(env.DUSTER_DORMANT_RETRY_MS || '300000', 10),
     maxBufferedEvents: parseInt(env.DUSTER_MAX_BUFFER_EVENTS || '1000', 10),
     maxBufferSizeBytes: parseInt(env.DUSTER_MAX_BUFFER_BYTES || '10485760', 10),
     useMtls,

@@ -21,7 +21,10 @@ export function extractTenantId(req: IncomingMessage): string | null {
 export async function verifyToken(token: string, secret: string): Promise<TenantToken | null> {
   try {
     const key = new TextEncoder().encode(secret);
-    const { payload } = await jwtVerify(token, key);
+    const { payload } = await jwtVerify(token, key, {
+      issuer: 'duster',
+      audience: 'duster-ws',
+    });
     if (!payload.tenantId) return null;
     return payload as unknown as TenantToken;
   } catch {
@@ -33,6 +36,8 @@ export async function createToken(tenantId: string, secret: string, expiresIn = 
   const key = new TextEncoder().encode(secret);
   return new SignJWT({ tenantId })
     .setProtectedHeader({ alg: 'HS256' })
+    .setIssuer('duster')
+    .setAudience('duster-ws')
     .setIssuedAt()
     .setExpirationTime(expiresIn)
     .sign(key);

@@ -69,12 +69,38 @@ export const webhookLimiter = createRateLimiter('webhook', {
   maxRequests: 100, // Stripe can send bursts
 });
 
+const TRUSTED_PROXIES = (process.env.TRUSTED_PROXY_RANGES || '127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16').split(',').map(s => s.trim());
+
+export function isFromTrustedProxy(ip: string): boolean {
+  return TRUSTED_PROXIES.some(range => {
+    if (range.includes('/')) {
+      return ipInCidr(ip, range);
+    }
+    return ip === range;
+  });
+}
+
+export function ipInCidr(ip: string, cidr: string): boolean {
+  const [range, bits] = cidr.split('/');
+  const mask = ~(2 ** (32 - parseInt(bits, 10)) - 1) >>> 0;
+  const ipNum = ipToNum(ip);
+  const rangeNum = ipToNum(range);
+  if (ipNum === null || rangeNum === null) return false;
+  return (ipNum & mask) === (rangeNum & mask);
+}
+
+export function ipToNum(ip: string): number | null {
+  const parts = ip.split('.');
+  if (parts.length !== 4) return null;
+  return parts.reduce((sum, part) => (sum << 8) + parseInt(part, 10), 0) >>> 0;
+}
+
 export function getClientIp(request: Request): string {
   const forwarded = request.headers.get('x-forwarded-for');
-  if (forwarded) {
+  const connectingIp = request.headers.get('x-real-ip') || '127.0.0.1';
+  if (forwarded && isFromTrustedProxy(connectingIp)) {
     return forwarded.split(',')[0].trim();
   }
-  const realIp = request.headers.get('x-real-ip');
-  if (realIp) return realIp;
+  if (connectingIp !== '127.0.0.1') return connectingIp;
   return '127.0.0.1';
 }

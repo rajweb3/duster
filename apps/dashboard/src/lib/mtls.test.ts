@@ -100,19 +100,19 @@ describe('mTLS - Dashboard', () => {
       expect(result.error).toContain('Invalid certificate format');
     });
 
-    it('returns invalid for a revoked certificate', () => {
+    it('returns invalid for a revoked certificate', async () => {
       const bundle = generateTenantCertificate('revoked-tenant');
-      revokeCertificate('revoked-tenant', 'deprovisioned');
+      await revokeCertificate('revoked-tenant', 'deprovisioned');
 
       const result = validateClientCert(bundle.certificate);
       expect(result.valid).toBe(false);
       expect(result.error).toContain('revoked');
     });
 
-    it('returns invalid for a certificate with revoked serial', () => {
+    it('returns invalid for a certificate with revoked serial', async () => {
       const bundle = generateTenantCertificate('serial-revoked-tenant');
       const info = getCertificateInfo(bundle.certificate);
-      revokeCertificateBySerial(info.serialNumber, 'serial-revoked-tenant', 'key_compromise');
+      await revokeCertificateBySerial(info.serialNumber, 'serial-revoked-tenant', 'key_compromise');
 
       const result = validateClientCert(bundle.certificate);
       expect(result.valid).toBe(false);
@@ -121,8 +121,8 @@ describe('mTLS - Dashboard', () => {
   });
 
   describe('revokeCertificate', () => {
-    it('adds tenant to revocation list', () => {
-      const result = revokeCertificate('tenant-to-revoke', 'manual_revocation');
+    it('adds tenant to revocation list', async () => {
+      const result = await revokeCertificate('tenant-to-revoke', 'manual_revocation');
 
       expect(result.revoked).toBe(true);
       const list = getRevocationList();
@@ -131,15 +131,15 @@ describe('mTLS - Dashboard', () => {
       expect(list[0].reason).toBe('manual_revocation');
     });
 
-    it('uses default reason when none provided', () => {
-      revokeCertificate('some-tenant');
+    it('uses default reason when none provided', async () => {
+      await revokeCertificate('some-tenant');
       const list = getRevocationList();
       expect(list[0].reason).toBe('tenant_deprovisioned');
     });
 
-    it('tracks revocation timestamp', () => {
+    it('tracks revocation timestamp', async () => {
       const before = new Date();
-      revokeCertificate('timed-tenant');
+      await revokeCertificate('timed-tenant');
       const after = new Date();
 
       const list = getRevocationList();
@@ -205,17 +205,17 @@ describe('mTLS - Dashboard', () => {
   });
 
   describe('CRL management', () => {
-    it('clearRevocationList empties the list', () => {
-      revokeCertificate('t1');
-      revokeCertificate('t2');
+    it('clearRevocationList empties the list', async () => {
+      await revokeCertificate('t1');
+      await revokeCertificate('t2');
       expect(getRevocationList()).toHaveLength(2);
 
       clearRevocationList();
       expect(getRevocationList()).toHaveLength(0);
     });
 
-    it('isCertificateRevoked checks by serial', () => {
-      revokeCertificateBySerial('AABB0011', 'some-tenant');
+    it('isCertificateRevoked checks by serial', async () => {
+      await revokeCertificateBySerial('AABB0011', 'some-tenant');
       expect(isCertificateRevoked('aabb0011')).toBe(true);
       expect(isCertificateRevoked('other')).toBe(false);
     });

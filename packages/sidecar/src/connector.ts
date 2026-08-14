@@ -8,15 +8,19 @@ import { createSecureWebSocketOptions } from './mtls.js';
 
 export type ConnectorState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
+export type ConnectorMode = 'active' | 'dormant';
+
 export class DashboardConnector extends EventEmitter {
   private ws: WebSocket | null = null;
   private state: ConnectorState = 'disconnected';
+  private mode: ConnectorMode = 'active';
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly buffer: EventBuffer;
   private readonly config: SidecarConfig;
   private jwtToken: string = '';
   private pingInterval: ReturnType<typeof setInterval> | null = null;
+  private tokenRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(config: SidecarConfig) {
     super();
@@ -59,12 +63,14 @@ export class DashboardConnector extends EventEmitter {
     }
 
     this.ws = new WebSocket(url, wsOptions);
+    this.ws.on('error', () => {});
 
     this.ws.on('open', () => {
       this.setState('connected');
       this.reconnectAttempts = 0;
       this.flushBuffer();
       this.startPing();
+      this.scheduleTokenRefresh();
       this.emit('connected');
     });
 
@@ -93,6 +99,10 @@ export class DashboardConnector extends EventEmitter {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+    if (this.tokenRefreshTimer) {
+      clearTimeout(this.tokenRefreshTimer);
+      this.tokenRefreshTimer = null;
     }
     this.cleanup();
     this.setState('disconnected');
@@ -125,20 +135,54 @@ export class DashboardConnector extends EventEmitter {
   }
 
   private flushBuffer(): void {
+    const overflowed = this.buffer.overflowOccurred;
+    const droppedCount = this.buffer.droppedCount;
+
     const buffered = this.buffer.drain();
     for (const msg of buffered) {
       if (this.ws?.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify(msg));
       }
     }
+
+    if (overflowed && this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: 'buffer.overflow',
+        tenantId: this.config.tenantId,
+        droppedCount,
+        timestamp: Date.now(),
+      }));
+      this.buffer.resetOverflowFlag();
+    }
+
     if (buffered.length > 0) {
       this.emit('buffer_flushed', buffered.length);
     }
   }
 
+  getMode(): ConnectorMode {
+    return this.mode;
+  }
+
   private scheduleReconnect(): void {
-    this.setState('reconnecting');
     this.reconnectAttempts++;
+
+    if (this.config.maxReconnectAttempts > 0 && this.reconnectAttempts > this.config.maxReconnectAttempts) {
+      this.mode = 'dormant';
+      this.setState('reconnecting');
+      this.emit('dormant', { attempts: this.reconnectAttempts });
+
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        this.reconnectAttempts = 0;
+        this.mode = 'active';
+        this.emit('wakeup');
+        this.connect();
+      }, this.config.dormantRetryMs);
+      return;
+    }
+
+    this.setState('reconnecting');
 
     const delay = Math.min(
       this.config.reconnectBaseMs * Math.pow(2, this.reconnectAttempts - 1),
@@ -153,17 +197,60 @@ export class DashboardConnector extends EventEmitter {
     this.emit('reconnecting', { attempt: this.reconnectAttempts, delayMs: delay });
   }
 
+  private scheduleTokenRefresh(): void {
+    if (this.tokenRefreshTimer) {
+      clearTimeout(this.tokenRefreshTimer);
+    }
+    // Refresh 1 hour before assumed 24h expiry
+    const refreshMs = 23 * 60 * 60 * 1000;
+    this.tokenRefreshTimer = setTimeout(() => {
+      this.refreshToken().catch(err => {
+        this.emit('error', new Error(`Token refresh failed: ${err.message}`));
+      });
+    }, refreshMs);
+  }
+
+  private async refreshToken(): Promise<void> {
+    const baseUrl = this.config.dashboardUrl.replace(/^ws/, 'http');
+    const url = `${baseUrl}/api/tenants/${this.config.tenantId}/token`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.jwtToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Token refresh returned ${response.status}`);
+    }
+
+    const { token } = await response.json() as { token: string };
+    this.jwtToken = token;
+    this.emit('token_refreshed');
+    this.scheduleTokenRefresh();
+  }
+
   private cleanup(): void {
     if (this.pingInterval) {
       clearInterval(this.pingInterval);
       this.pingInterval = null;
     }
     if (this.ws) {
-      this.ws.removeAllListeners();
-      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
-        this.ws.close(1000);
-      }
+      const ws = this.ws;
       this.ws = null;
+      ws.removeAllListeners();
+      ws.on('error', () => {});
+      try {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close(1000);
+        } else if (ws.readyState === WebSocket.CONNECTING) {
+          ws.terminate();
+        }
+      } catch {
+        // ws may throw if socket hasn't been fully initialized
+      }
     }
   }
 

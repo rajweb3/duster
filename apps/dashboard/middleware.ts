@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
 
+const isDev = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
+if (!process.env.JWT_SECRET && !isDev) {
+  throw new Error('FATAL: JWT_SECRET environment variable is required in production. Refusing to start with insecure default.');
+}
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'duster-dev-secret-change-in-production');
 const PUBLIC_PATHS = ['/', '/login', '/signup', '/forgot-password', '/reset-password', '/api/auth', '/api/webhooks', '/api/billing/checkout', '/api/errors', '/onboarding'];
 

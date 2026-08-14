@@ -6,6 +6,7 @@ import { subscriptions, tenants } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { logAudit } from '@/lib/audit';
 import { webhookLimiter, getClientIp } from '@/lib/rate-limit';
+import { revokeCertificate } from '@/lib/mtls';
 
 function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!);
@@ -135,16 +136,54 @@ export async function POST(request: Request) {
         .returning();
 
       if (updated) {
+        const tenant = await db.query.tenants.findFirst({
+          where: (t, { eq }) => eq(t.id, updated.tenantId),
+        });
+
         await db.update(tenants)
-          .set({ status: 'suspended', updatedAt: new Date() })
+          .set({ status: 'terminated', updatedAt: new Date() })
           .where(eq(tenants.id, updated.tenantId));
+
+        await revokeCertificate(updated.tenantId, 'subscription_canceled');
+
+        if (tenant?.instanceId) {
+          try {
+            const { EC2Client, TerminateInstancesCommand } = await import('@aws-sdk/client-ec2');
+            const ec2 = new EC2Client({ region: process.env.AWS_REGION || 'us-east-1' });
+            await ec2.send(new TerminateInstancesCommand({
+              InstanceIds: [tenant.instanceId],
+            }));
+
+            await db.update(tenants).set({
+              instanceId: null,
+              updatedAt: new Date(),
+            }).where(eq(tenants.id, updated.tenantId));
+
+            await logAudit({
+              tenantId: updated.tenantId,
+              action: 'tenant.instance_terminated',
+              resource: 'instance',
+              resourceId: tenant.instanceId,
+              metadata: { reason: 'subscription_canceled', eventId: event.id },
+            });
+          } catch (err: any) {
+            console.error(`Failed to terminate instance ${tenant.instanceId}:`, err.message);
+            await logAudit({
+              tenantId: updated.tenantId,
+              action: 'tenant.termination_failed',
+              resource: 'instance',
+              resourceId: tenant.instanceId,
+              metadata: { error: err.message, eventId: event.id },
+            });
+          }
+        }
 
         await logAudit({
           tenantId: updated.tenantId,
           action: 'billing.subscription_canceled',
           resource: 'subscription',
           resourceId: subscription.id,
-          metadata: { eventId: event.id },
+          metadata: { eventId: event.id, instanceTerminated: !!tenant?.instanceId },
         });
       }
       break;

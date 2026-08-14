@@ -19,6 +19,7 @@ export class Sidecar {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private metricsTimer: ReturnType<typeof setInterval> | null = null;
   private running = false;
+  private startedAt: number = 0;
 
   constructor(config: SidecarConfig) {
     this.config = config;
@@ -34,6 +35,7 @@ export class Sidecar {
   async start(): Promise<void> {
     if (this.running) return;
     this.running = true;
+    this.startedAt = Date.now();
 
     const token = await this.loadToken();
     this.connector.setToken(token);
@@ -110,7 +112,7 @@ export class Sidecar {
       activeSessions: state.activeSessions,
       queueDepth: state.queueDepth,
       inferenceSpeedTokS: state.inferenceSpeed,
-      uptimeSeconds: Math.floor((Date.now() - (state.lastCheck || Date.now())) / 1000),
+      uptimeSeconds: Math.floor((Date.now() - this.startedAt) / 1000),
       errorRate: state.consecutiveFailures > 0 ? 1 : 0,
     };
     this.connector.send(message);
